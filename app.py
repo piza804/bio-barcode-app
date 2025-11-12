@@ -13,11 +13,12 @@ if not firebase_admin._apps:
     try:
         # Streamlit Secrets からFirebase認証情報を読み込む
         firebase_secrets = st.secrets["firebase"]
-        cred = credentials.Certificate(dict(firebase_secrets))
-    except Exception:
-        # ローカル用：firebase_key.json がある場合
-        cred = credentials.Certificate("firebase_key.json")
+        cred = credentials.Certificate(json.loads(json.dumps(dict(firebase_secrets)))) 
+    except Exception as e:
+        st.error(f"Firebase初期化エラー: {e}")
+        st.stop()
     firebase_admin.initialize_app(cred)
+
 
 db = firestore.client()
 
@@ -173,5 +174,6 @@ if 'df' in locals():
         st.write(f"**{data.get('name','不明')}** - バーコード: {data.get('barcode','不明')}, 数量: {int(data.get('qty',0))}, 有効期限: {data.get('expiration','不明')}")
 
 _ = st.session_state.refresh_toggle
+
 
 
