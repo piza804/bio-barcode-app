@@ -5,6 +5,7 @@ import time
 import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
+import json
 
 # ------------------------------------------------
 # Firebase 初期化（Streamlit Cloud対応）
@@ -174,6 +175,7 @@ if 'df' in locals():
         st.write(f"**{data.get('name','不明')}** - バーコード: {data.get('barcode','不明')}, 数量: {int(data.get('qty',0))}, 有効期限: {data.get('expiration','不明')}")
 
 _ = st.session_state.refresh_toggle
+
 
 
 
