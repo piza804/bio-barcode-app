@@ -4,48 +4,60 @@ from datetime import datetime
 import time
 import firebase_admin
 from firebase_admin import credentials, firestore
-from pyzxing import BarCodeReader
 import pandas as pd
 
-# -------------------------------
-# Firebase 初期化
-# -------------------------------
+# ------------------------------------------------
+# Firebase 初期化（Streamlit Cloud対応）
+# ------------------------------------------------
 if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase_key.json")
+    try:
+        # Streamlit Secrets からFirebase認証情報を読み込む
+        firebase_secrets = st.secrets["firebase"]
+        cred = credentials.Certificate(dict(firebase_secrets))
+    except Exception:
+        # ローカル用：firebase_key.json がある場合
+        cred = credentials.Certificate("firebase_key.json")
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
 
-# -------------------------------
+# ------------------------------------------------
+# ZXingリーダー（ローカル専用）
+# ------------------------------------------------
+try:
+    from pyzxing import BarCodeReader
+    reader = BarCodeReader()
+except Exception:
+    reader = None
+    st.warning("⚠️ pyzxing が利用できない環境です。バーコード読み取りはローカルPCで行ってください。")
+
+# ------------------------------------------------
 # Streamlit 設定
-# -------------------------------
+# ------------------------------------------------
 st.set_page_config(page_title="試薬バーコード管理", layout="wide")
 st.title("🧪 試薬バーコード管理（GS1-128対応）")
 
 menu = st.sidebar.radio("メニュー", ["バーコード登録", "在庫一覧 / 出庫"])
 
-# ZXing リーダー
-reader = BarCodeReader()
-
-# -------------------------------
+# ------------------------------------------------
 # セッションステート初期化
-# -------------------------------
+# ------------------------------------------------
 if "last_scan_time" not in st.session_state:
-    st.session_state.last_scan_time = {}  # バーコードごとの最後スキャン時刻
+    st.session_state.last_scan_time = {}
 
 if "refresh_toggle" not in st.session_state:
-    st.session_state.refresh_toggle = False  # 再描画用フラグ
+    st.session_state.refresh_toggle = False
 
-COOLDOWN_SEC = 5  # 同じバーコードの連続スキャンを防ぐ秒数
+COOLDOWN_SEC = 5
 
-# -------------------------------
+# ------------------------------------------------
 # バーコード登録ページ
-# -------------------------------
+# ------------------------------------------------
 if menu == "バーコード登録":
     st.header("📷 カメラでバーコード登録")
     camera_image = st.camera_input("バーコードをスキャン")
 
-    if camera_image:
+    if camera_image and reader:
         image = Image.open(camera_image)
         tmp_path = "tmp_barcode.png"
         image.save(tmp_path)
@@ -64,11 +76,9 @@ if menu == "バーコード登録":
                 st.session_state.last_scan_time[barcode_data] = now
                 st.success(f"バーコード読み取り成功：{barcode_data}")
 
-                # Firestore に既存かチェック
                 docs = db.collection("reagents").where("barcode", "==", barcode_data).get()
 
                 if docs:
-                    # 既存試薬 → 数量 +1
                     doc_ref = docs[0].reference
                     data = docs[0].to_dict()
                     new_qty = int(data.get("qty", 0)) + 1
@@ -84,7 +94,6 @@ if menu == "バーコード登録":
                         "timestamp": datetime.now()
                     })
                 else:
-                    # 新規登録フォーム
                     st.warning("新しいバーコードです。以下を入力してください。")
                     name = st.text_input("試薬名")
                     qty = st.number_input("数量", 1, 100, 1)
@@ -107,15 +116,16 @@ if menu == "バーコード登録":
                             "timestamp": datetime.now()
                         })
                         st.success(f"✅ {name} を新規登録しました")
-                        # 再描画用フラグを切り替える
                         st.session_state.refresh_toggle = not st.session_state.refresh_toggle
 
         else:
             st.error("バーコードを検出できませんでした。もう一度撮影してください。")
+    elif not reader:
+        st.info("Streamlit Cloud上ではバーコードスキャン機能は無効です。")
 
-# -------------------------------
+# ------------------------------------------------
 # 在庫一覧 / 出庫ページ
-# -------------------------------
+# ------------------------------------------------
 elif menu == "在庫一覧 / 出庫":
     st.header("📦 在庫一覧")
     docs = db.collection("reagents").stream()
@@ -152,18 +162,16 @@ elif menu == "在庫一覧 / 出庫":
             "timestamp": datetime.now()
         })
         st.success(f"✅ {selected_doc['name']} を出庫しました（残り: {new_qty}）")
-        # 再描画用フラグを切り替える
         st.session_state.refresh_toggle = not st.session_state.refresh_toggle
 
-# -------------------------------
-# 試薬一覧表示（自動再描画対応）
-# -------------------------------
+# ------------------------------------------------
+# 一覧表示（再描画対応）
+# ------------------------------------------------
 if 'df' in locals():
     st.subheader("📄 試薬一覧")
-    for index, data in df.iterrows():
+    for _, data in df.iterrows():
         st.write(f"**{data.get('name','不明')}** - バーコード: {data.get('barcode','不明')}, 数量: {int(data.get('qty',0))}, 有効期限: {data.get('expiration','不明')}")
 
-# -------------------------------
-# Streamlit 再描画トリガー
-# -------------------------------
-_ = st.session_state.refresh_toggle  # toggle変化で自動再描画
+_ = st.session_state.refresh_toggle
+
+
