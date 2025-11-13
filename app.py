@@ -1,4 +1,3 @@
-import json
 import streamlit as st
 import streamlit.components.v1 as components
 from datetime import datetime
@@ -11,12 +10,18 @@ import time
 # Firebase 初期化
 # -------------------------------
 if not firebase_admin._apps:
-    firebase_config = dict(st.secrets["firebase"])
-    # 改行コードを正しい形式に戻す
-    firebase_config["private_key"] = firebase_config["private_key"].replace("\\n", "\n")
+    # Streamlit secrets から firebase セクションを dict 化
+    firebase_config = {k: v for k, v in st.secrets["firebase"].items()}
+    
+    # 改行コードを復元（TOMLでは \n が失われるため）
+    if "private_key" in firebase_config:
+        firebase_config["private_key"] = firebase_config["private_key"].replace("\\n", "\n")
+    
+    # Firebase 認証
     cred = credentials.Certificate(firebase_config)
     firebase_admin.initialize_app(cred)
 
+# Firestore クライアント作成
 db = firestore.client()
 
 # -------------------------------
@@ -189,6 +194,7 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
 
 
 
