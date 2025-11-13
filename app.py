@@ -3,6 +3,8 @@ from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, firestore
 import time
+import streamlit.components.v1 as components
+
 
 # -------------------------------
 # Firebase 初期化
@@ -123,3 +125,4 @@ if menu == "バーコード登録":
                 st.success(f"{name} を登録しました")
                 st.session_state.barcode = ""  # 登録後リセット
                 st.session_state.refresh_toggle = not st.session_state.refresh_toggle
+
