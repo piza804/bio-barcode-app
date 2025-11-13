@@ -136,8 +136,9 @@ elif menu == "在庫一覧 / 出庫":
         selected_doc = df[df["name"]==select_name].iloc[0]
         new_qty = max(int(selected_doc["qty"])-reduce_qty,0)
         db.collection("reagents").document(selected_doc["id"]).update({"qty":new_qty,"updated_at":datetime.now()})
-        db.collection("usage_logs"].add({"action":"出庫","name":selected_doc["name"],"barcode":selected_doc["barcode"],"timestamp":datetime.now()})
+        db.collection("usage_logs").add({"action":"出庫","name":selected_doc["name"],"barcode":selected_doc["barcode"],"timestamp":datetime.now()})
         st.success(f"✅ {selected_doc['name']} を出庫しました（残り: {new_qty}）")
         st.session_state.refresh_toggle = not st.session_state.refresh_toggle
+
 
 
