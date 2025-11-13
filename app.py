@@ -5,23 +5,15 @@ import time
 import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
-import json # JSON処理のためにインポート
 
 # -------------------------------
 # Firebase 初期化
 # -------------------------------
 if not firebase_admin._apps:
-    # 秘密鍵ファイルが存在するか確認してから初期化
-    try:
-        cred = credentials.Certificate("firebase_key.json")
-        firebase_admin.initialize_app(cred)
-        db = firestore.client()
-    except FileNotFoundError:
-        st.error("エラー: 'firebase_key.json' ファイルが見つかりません。")
-        db = None # DB接続がない場合はNoneに設定
-    except Exception as e:
-        st.error(f"Firebase 初期化中にエラーが発生しました: {e}")
-        db = None
+    cred = credentials.Certificate("firebase_key.json")
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
 
 # -------------------------------
 # Streamlit 設定
@@ -48,7 +40,6 @@ COOLDOWN_SEC = 5
 # -------------------------------
 # QuaggaJS バーコードスキャナ HTML
 # -------------------------------
-# ノーブレークスペースを修正
 quagga_html = """
 <div id="barcode-scanner" style="width:100%; max-width:480px; margin:auto;">
   <video id="video" width="100%" autoplay muted playsinline></video>
@@ -75,7 +66,7 @@ Quagga.init({
 Quagga.onDetected(function(data) {
   const code = data.codeResult.code;
   resultElem.textContent = "検出: " + code;
-  // Streamlit に送信 (postMessageで直接セッションステートを更新)
+  // Streamlit に送信
   window.parent.postMessage({ type: 'barcode', code: code }, '*');
 });
 </script>
@@ -86,132 +77,82 @@ Quagga.onDetected(function(data) {
 # -------------------------------
 if menu == "バーコード登録":
     st.header("📷 バーコードスキャン")
-    
-    # QuaggaJS スキャナーを最上部に配置
-    components.html(quagga_html, height=450, scrolling=False)
-    
-    # ----------------------------------------------------
-    # JavaScriptからのメッセージハンドラ
-    # ----------------------------------------------------
-    
-    # on_changeコールバック関数。QuaggaJSからの値を受け取るたびに呼び出される。
-    def handle_barcode_scan():
-        # components.htmlのkeyによってセッションステートに値が格納されている
-        if st.session_state.quagga_result:
-            st.session_state.barcode = st.session_state.quagga_result
-            st.session_state.processing_barcode = st.session_state.quagga_result
-            # 値を受け取ったら、フォーム表示のために再実行
-            st.experimental_rerun()
+    components.html(quagga_html, height=600, scrolling=True)
 
-    # QuaggaJSの検出結果を受け取るためのコンポーネント
-    # on_changeでハンドラを呼び出し、セッションステートを更新する
-    components.html(
-        f"""
-        <script>
-        window.addEventListener('message', (event) => {{
-            if (event.data.type === 'barcode') {{
-                const barcode = event.data.code;
-                const state = window.parent.document.querySelector('[data-testid="stComponentV1"]');
-                // Streamlitのコンポーネントに値をセットし、イベントを発生させてon_changeをトリガー
-                state.setAttribute('value', barcode);
-                state.dispatchEvent(new Event('change', {{ bubbles: true }}));
-            }}
-        }});
-        </script>
-        """,
-        height=0, # 表示しない
-        width=0,
-        key="quagga_result",
-        on_change=handle_barcode_scan # 値が変化したらこのPython関数を呼び出す
-    )
+    # メッセージ受信スクリプト
+    st.markdown("""
+    <script>
+    window.addEventListener('message', (event) => {
+      if (event.data.type === 'barcode') {
+        const barcodeInput = window.parent.document.querySelector('input[id*="barcode番号"]');
+        if (barcodeInput) {
+          barcodeInput.value = event.data.code;
+          barcodeInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+    });
+    </script>
+    """, unsafe_allow_html=True)
 
-    # ----------------------------------------------------
-    # スキャン後の処理エリア（スキャナー直下）
-    # ----------------------------------------------------
-    if st.session_state.barcode and db:
-        current_barcode = st.session_state.barcode
-        
-        st.subheader(f"🏷️ 処理中のバーコード: **{current_barcode}**")
+    barcode_data = st.text_input("バーコード番号", st.session_state.barcode)
 
+    if barcode_data:
         now = time.time()
-        last_time = st.session_state.last_scan_time.get(current_barcode, 0)
+        last_time = st.session_state.last_scan_time.get(barcode_data, 0)
 
-        # 1. クールダウンチェック
         if now - last_time < COOLDOWN_SEC:
-            remaining_time = int(COOLDOWN_SEC - (now - last_time))
-            st.info(f"💡 **クールダウン中**です。連続スキャンを防ぐため、{remaining_time}秒後に再度処理されます。")
+            st.info(f"{barcode_data} はクールダウン中 ({int(COOLDOWN_SEC - (now - last_time))}秒)")
         else:
-            # 2. クールダウン終了 - 処理開始
-            st.session_state.last_scan_time[current_barcode] = now
-            
+            st.session_state.last_scan_time[barcode_data] = now
+            st.success(f"バーコード読み取り成功：{barcode_data}")
+
             # Firestore に既存チェック
-            docs = db.collection("reagents").where("barcode", "==", current_barcode).get()
+            docs = db.collection("reagents").where("barcode", "==", barcode_data).get()
 
             if docs:
-                # 3. 既存試薬の自動入庫処理
                 doc_ref = docs[0].reference
                 data = docs[0].to_dict()
                 new_qty = int(data.get("qty", 0)) + 1
-                
-                # DB更新
-                doc_ref.update({
+                db.collection("reagents").document(doc_ref.id).update({
                     "qty": new_qty,
                     "updated_at": datetime.now()
                 })
-                
-                # ログ記録
+                st.info(f"既存試薬を更新：{data.get('name','不明')}（数量: {new_qty}）")
                 db.collection("usage_logs").add({
                     "action": "入庫",
                     "name": data.get('name','不明'),
-                    "barcode": current_barcode,
+                    "barcode": barcode_data,
                     "timestamp": datetime.now()
                 })
-                
-                st.success(f"✅ 既存試薬 **{data.get('name','不明')}** を**自動入庫**しました。（数量: **{new_qty}**）")
-                st.session_state.barcode = "" 
-                st.session_state.refresh_toggle = not st.session_state.refresh_toggle
-                
             else:
-                # 4. 新規バーコードの登録フォーム表示
-                st.warning("🆕 **新しいバーコード**です。試薬情報を入力してください。")
-                
-                with st.form("new_reagent_form"):
-                    name = st.text_input("試薬名", key="new_reagent_name")
-                    qty = st.number_input("初期数量", 1, 100, 1, key="new_reagent_qty")
-                    exp = st.date_input("有効期限", key="new_reagent_exp")
-                    
-                    submitted = st.form_submit_button("🧪 試薬を新規登録")
+                st.warning("新しいバーコードです。以下を入力してください。")
+                name = st.text_input("試薬名")
+                qty = st.number_input("数量", 1, 100, 1)
+                exp = st.date_input("有効期限")
 
-                    if submitted:
-                        data = {
-                            "barcode": current_barcode,
-                            "name": name,
-                            "qty": int(qty),
-                            "expiration": exp.strftime("%Y-%m-%d"),
-                            "created_at": datetime.now(),
-                            "updated_at": datetime.now()
-                        }
-                        # DB登録
-                        db.collection("reagents").add(data)
-                        
-                        # ログ記録
-                        db.collection("usage_logs").add({
-                            "action": "登録",
-                            "name": name,
-                            "barcode": current_barcode,
-                            "timestamp": datetime.now()
-                        })
-                        
-                        st.success(f"✅ **{name}** を新規登録しました！")
-                        st.session_state.barcode = ""
-                        st.session_state.refresh_toggle = not st.session_state.refresh_toggle
-                        st.experimental_rerun()
-
+                if st.button("登録"):
+                    data = {
+                        "barcode": barcode_data,
+                        "name": name,
+                        "qty": int(qty),
+                        "expiration": exp.strftime("%Y-%m-%d"),
+                        "created_at": datetime.now(),
+                        "updated_at": datetime.now()
+                    }
+                    db.collection("reagents").add(data)
+                    db.collection("usage_logs").add({
+                        "action": "登録",
+                        "name": name,
+                        "barcode": barcode_data,
+                        "timestamp": datetime.now()
+                    })
+                    st.success(f"✅ {name} を新規登録しました")
+                    st.session_state.refresh_toggle = not st.session_state.refresh_toggle
 
 # -------------------------------
-# 在庫一覧 / 出庫ページ (DB接続がある場合のみ表示)
+# 在庫一覧 / 出庫ページ
 # -------------------------------
-elif menu == "在庫一覧 / 出庫" and db:
+elif menu == "在庫一覧 / 出庫":
     st.header("📦 在庫一覧")
     docs = db.collection("reagents").stream()
     items = []
@@ -223,31 +164,31 @@ elif menu == "在庫一覧 / 出庫" and db:
 
     if not items:
         st.info("在庫がありません")
-        # st.stop() は削除。df定義をスキップする
-    else:
-        df = pd.DataFrame(items)
-        st.dataframe(df[["name", "qty", "expiration", "barcode"]], use_container_width=True)
+        st.stop()
 
-        st.subheader("📉 出庫操作")
-        select_name = st.selectbox("試薬を選択", df["name"].unique())
-        reduce_qty = st.number_input("出庫数量", 1, 10)
-        out_btn = st.button("出庫（数量を減算）")
+    df = pd.DataFrame(items)
+    st.dataframe(df[["name", "qty", "expiration", "barcode"]], use_container_width=True)
 
-        if out_btn:
-            selected_doc = df[df["name"] == select_name].iloc[0]
-            new_qty = max(int(selected_doc["qty"]) - reduce_qty, 0)
-            db.collection("reagents").document(selected_doc["id"]).update({
-                "qty": new_qty,
-                "updated_at": datetime.now()
-            })
-            db.collection("usage_logs").add({
-                "action": "出庫",
-                "name": selected_doc["name"],
-                "barcode": selected_doc["barcode"],
-                "timestamp": datetime.now()
-            })
-            st.success(f"✅ {selected_doc['name']} を出庫しました（残り: {new_qty}）")
-            st.session_state.refresh_toggle = not st.session_state.refresh_toggle
+    st.subheader("📉 出庫操作")
+    select_name = st.selectbox("試薬を選択", df["name"].unique())
+    reduce_qty = st.number_input("出庫数量", 1, 10)
+    out_btn = st.button("出庫（数量を減算）")
+
+    if out_btn:
+        selected_doc = df[df["name"] == select_name].iloc[0]
+        new_qty = max(int(selected_doc["qty"]) - reduce_qty, 0)
+        db.collection("reagents").document(selected_doc["id"]).update({
+            "qty": new_qty,
+            "updated_at": datetime.now()
+        })
+        db.collection("usage_logs").add({
+            "action": "出庫",
+            "name": selected_doc["name"],
+            "barcode": selected_doc["barcode"],
+            "timestamp": datetime.now()
+        })
+        st.success(f"✅ {selected_doc['name']} を出庫しました（残り: {new_qty}）")
+        st.session_state.refresh_toggle = not st.session_state.refresh_toggle
 
 # -------------------------------
 # 試薬一覧
@@ -256,4 +197,3 @@ if 'df' in locals():
     st.subheader("📄 試薬一覧")
     for index, data in df.iterrows():
         st.write(f"**{data.get('name','不明')}** - バーコード: {data.get('barcode','不明')}, 数量: {int(data.get('qty',0))}, 有効期限: {data.get('expiration','不明')}")
-
