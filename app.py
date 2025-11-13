@@ -101,30 +101,28 @@ if menu == "バーコード登録":
 # 登録フォーム / 既存試薬処理
 # -------------------------------
 barcode_data = st.session_state.barcode
-
-# 登録処理（既存 or 新規）
-if barcode_data:
-    docs = db.collection("reagents").where("barcode","==",barcode_data).get()
-    if docs:  # 既存試薬
+if barcode_data and menu == "バーコード登録":
+    docs = db.collection("reagents").where("barcode", "==", barcode_data).get()
+    if docs:
         data = docs[0].to_dict()
+        st.info(f"既存試薬: {data.get('name','不明')}（数量: {data.get('qty',0)}）")
         if st.button("数量 +1"):
-            new_qty = data.get("qty",0)+1
             db.collection("reagents").document(docs[0].id).update({
-                "qty": new_qty,
+                "qty": data.get('qty',0)+1,
                 "updated_at": datetime.now()
             })
             db.collection("usage_logs").add({
                 "action":"入庫",
-                "name":data.get("name","不明"),
+                "name":data.get('name','不明'),
                 "barcode":barcode_data,
                 "timestamp":datetime.now()
             })
-            st.success(f"数量を更新しました（残り {new_qty}）")
-            st.session_state.refresh_toggle = not st.session_state.refresh_toggle  # 再描画
-
-    else:  # 新規登録
+            st.success("数量を更新しました")
+            st.session_state.refresh_toggle = not st.session_state.refresh_toggle
+    else:
+        st.warning("新しいバーコードです。登録してください")
         name = st.text_input("試薬名")
-        qty = st.number_input("数量",1,100,1)
+        qty = st.number_input("数量", 1, 100, 1)
         exp = st.date_input("有効期限")
         if st.button("登録"):
             db.collection("reagents").add({
@@ -142,15 +140,8 @@ if barcode_data:
                 "timestamp":datetime.now()
             })
             st.success(f"{name} を登録しました")
-            st.session_state.barcode = ""
-            st.session_state.refresh_toggle = not st.session_state.refresh_toggle  # 再描画
-
-# 在庫一覧を常に最新に
-docs = db.collection("reagents").stream()
-items = [ {**doc.to_dict(), "id": doc.id} for doc in docs ]
-df = pd.DataFrame(items)
-st.dataframe(df[["name","qty","expiration","barcode"]], use_container_width=True)
-
+            st.session_state.barcode = ""  # 登録後リセット
+            st.session_state.refresh_toggle = not st.session_state.refresh_toggle
 
 # -------------------------------
 # 在庫一覧 / 出庫ページ
@@ -182,7 +173,7 @@ elif menu == "在庫一覧 / 出庫":
             "qty": new_qty,
             "updated_at": datetime.now()
         })
-        db.collection("usage_logs").add({
+        db.collection("usage_logs"].add({
             "action":"出庫",
             "name":selected_doc["name"],
             "barcode":selected_doc["barcode"],
@@ -195,4 +186,3 @@ elif menu == "在庫一覧 / 出庫":
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
-
