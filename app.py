@@ -102,7 +102,7 @@ window.addEventListener('message', (event) => {
     barcode_data = st.text_input("バーコード番号（自動入力）",value=st.session_state.get("barcode",""), key="barcode_input")
 
     if barcode_data and barcode_data != st.session_state.get("barcode",""):
-    st.session_state.barcode = barcode_data
+        st.session_state.barcode = barcode_data
     
     # -------------------------------
     # 登録処理（既存 or 新規）
@@ -189,6 +189,7 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
 
 
 
