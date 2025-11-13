@@ -84,6 +84,9 @@ Quagga.onDetected(function(data) {
 # -------------------------------
 # バーコード登録ページ
 # -------------------------------
+# -------------------------------
+# バーコード登録ページ (修正後)
+# -------------------------------
 if menu == "バーコード登録":
     st.header("📷 バーコードスキャン")
     
@@ -91,39 +94,31 @@ if menu == "バーコード登録":
     components.html(quagga_html, height=450, scrolling=False)
     
     # ----------------------------------------------------
-    # JavaScriptからのメッセージハンドラ
+    # JavaScriptからメッセージを受信し、非表示のtext_inputを更新する
     # ----------------------------------------------------
+    st.markdown("""
+    <script>
+    window.addEventListener('message', (event) => {
+      if (event.data.type === 'barcode') {
+        // 非表示の入力フィールドに値をセットし、変更イベントを発生させてStreamlitを再実行させる
+        const barcodeInput = window.parent.document.querySelector('input[id*="hidden_barcode_input"]');
+        if (barcodeInput) {
+          barcodeInput.value = event.data.code;
+          barcodeInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+    });
+    </script>
+    """, unsafe_allow_html=True)
     
-    # on_changeコールバック関数。QuaggaJSからの値を受け取るたびに呼び出される。
-    def handle_barcode_scan():
-        # components.htmlのkeyによってセッションステートに値が格納されている
-        if st.session_state.quagga_result:
-            st.session_state.barcode = st.session_state.quagga_result
-            st.session_state.processing_barcode = st.session_state.quagga_result
-            # 値を受け取ったら、フォーム表示のために再実行
-            st.experimental_rerun()
-
-    # QuaggaJSの検出結果を受け取るためのコンポーネント
-    # on_changeでハンドラを呼び出し、セッションステートを更新する
-    components.html(
-        f"""
-        <script>
-        window.addEventListener('message', (event) => {{
-            if (event.data.type === 'barcode') {{
-                const barcode = event.data.code;
-                const state = window.parent.document.querySelector('[data-testid="stComponentV1"]');
-                // Streamlitのコンポーネントに値をセットし、イベントを発生させてon_changeをトリガー
-                state.setAttribute('value', barcode);
-                state.dispatchEvent(new Event('change', {{ bubbles: true }}));
-            }}
-        }});
-        </script>
-        """,
-        height=0, # 表示しない
-        width=0,
-        key="quagga_result",
-        on_change=handle_barcode_scan # 値が変化したらこのPython関数を呼び出す
-    )
+    # バーコード値を受け取るための非表示のインプットフィールド (セッションステート更新用)
+    hidden_barcode_key = "hidden_barcode_input"
+    barcode_data_from_scanner = st.text_input("バーコードスキャン値 (非表示)", key=hidden_barcode_key, label_visibility="hidden")
+    
+    # スキャンによって値が変わった場合のみ処理を実行
+    if barcode_data_from_scanner and barcode_data_from_scanner != st.session_state.barcode:
+        st.session_state.barcode = barcode_data_from_scanner
+        st.experimental_rerun() # 値が変わったら即座に再実行してクールダウンチェックに進む
 
     # ----------------------------------------------------
     # スキャン後の処理エリア（スキャナー直下）
@@ -176,6 +171,7 @@ if menu == "バーコード登録":
                 st.warning("🆕 **新しいバーコード**です。試薬情報を入力してください。")
                 
                 with st.form("new_reagent_form"):
+                    # st.session_state.barcode を初期値として利用したい場合は以下のようにする
                     name = st.text_input("試薬名", key="new_reagent_name")
                     qty = st.number_input("初期数量", 1, 100, 1, key="new_reagent_qty")
                     exp = st.date_input("有効期限", key="new_reagent_exp")
@@ -206,7 +202,6 @@ if menu == "バーコード登録":
                         st.session_state.barcode = ""
                         st.session_state.refresh_toggle = not st.session_state.refresh_toggle
                         st.experimental_rerun()
-
 
 # -------------------------------
 # 在庫一覧 / 出庫ページ (DB接続がある場合のみ表示)
@@ -256,3 +251,4 @@ if 'df' in locals():
     st.subheader("📄 試薬一覧")
     for index, data in df.iterrows():
         st.write(f"**{data.get('name','不明')}** - バーコード: {data.get('barcode','不明')}, 数量: {int(data.get('qty',0))}, 有効期限: {data.get('expiration','不明')}")
+
