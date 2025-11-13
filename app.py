@@ -125,7 +125,7 @@ window.addEventListener('message', (event) => {
                         "qty": new_qty,
                         "updated_at": datetime.now()
                     })
-                     st.session_state.refresh_toggle = not st.session_state.refresh_toggle
+                    st.session_state.refresh_toggle = not st.session_state.refresh_toggle
             else:  # 新規登録
                 st.warning("新規バーコードです。登録してください")
                 name = st.text_input("試薬名")
@@ -189,6 +189,7 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
 
 
 
