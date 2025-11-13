@@ -75,16 +75,22 @@ Quagga.onDetected(function(data) {
 # -------------------------------
 # バーコード登録ページ
 # -------------------------------
+# -------------------------------
+# バーコード登録ページ
+# -------------------------------
 if menu == "バーコード登録":
     st.header("📷 バーコードスキャン")
     components.html(quagga_html, height=600, scrolling=True)
 
-    # メッセージ受信スクリプト
+    # JavaScriptからメッセージを受信し、セッションステートを更新する
+    # このスクリプトは、QuaggaJSの検出結果を直接セッションステートに保持する
     st.markdown("""
     <script>
     window.addEventListener('message', (event) => {
       if (event.data.type === 'barcode') {
-        const barcodeInput = window.parent.document.querySelector('input[id*="barcode番号"]');
+        // Streamlitのセッションステートを更新するためのメッセージを送信
+        // これにより、Streamlitが再実行され、新しいバーコードが処理される
+        const barcodeInput = window.parent.document.querySelector('input[id*="hidden_barcode_input"]');
         if (barcodeInput) {
           barcodeInput.value = event.data.code;
           barcodeInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -93,61 +99,102 @@ if menu == "バーコード登録":
     });
     </script>
     """, unsafe_allow_html=True)
+    
+    # バーコード値を受け取るための非表示のインプットフィールド (セッションステート更新用)
+    # ユーザーには見えないが、JSからの値を受け取ってStreamlitを再実行させる役割
+    hidden_barcode_key = "hidden_barcode_input"
+    barcode_data_from_scanner = st.text_input("バーコードスキャン値 (非表示)", key=hidden_barcode_key, label_visibility="hidden")
+    
+    # スキャンによって値が変わった場合のみ処理を実行
+    if barcode_data_from_scanner and barcode_data_from_scanner != st.session_state.barcode:
+        st.session_state.barcode = barcode_data_from_scanner
+        st.session_state.processing_barcode = barcode_data_from_scanner # 処理中のバーコードを保持
+        st.experimental_rerun() # 値が変わったら即座に再実行してクールダウンチェックに進む
 
-    barcode_data = st.text_input("バーコード番号", st.session_state.barcode)
+    if st.session_state.barcode:
+        current_barcode = st.session_state.barcode
+        
+        st.subheader(f"🏷️ 処理中のバーコード: **{current_barcode}**")
 
-    if barcode_data:
         now = time.time()
-        last_time = st.session_state.last_scan_time.get(barcode_data, 0)
+        last_time = st.session_state.last_scan_time.get(current_barcode, 0)
 
+        # 1. クールダウンチェック
         if now - last_time < COOLDOWN_SEC:
-            st.info(f"{barcode_data} はクールダウン中 ({int(COOLDOWN_SEC - (now - last_time))}秒)")
+            remaining_time = int(COOLDOWN_SEC - (now - last_time))
+            st.info(f"💡 **クールダウン中**です。連続スキャンを防ぐため、{remaining_time}秒後に再度処理されます。")
         else:
-            st.session_state.last_scan_time[barcode_data] = now
-            st.success(f"バーコード読み取り成功：{barcode_data}")
-
+            # 2. クールダウン終了 - 処理開始
+            st.session_state.last_scan_time[current_barcode] = now
+            
             # Firestore に既存チェック
-            docs = db.collection("reagents").where("barcode", "==", barcode_data).get()
+            docs = db.collection("reagents").where("barcode", "==", current_barcode).get()
 
             if docs:
+                # 3. 既存試薬の自動入庫処理
                 doc_ref = docs[0].reference
                 data = docs[0].to_dict()
                 new_qty = int(data.get("qty", 0)) + 1
-                db.collection("reagents").document(doc_ref.id).update({
+                
+                # DB更新
+                doc_ref.update({
                     "qty": new_qty,
                     "updated_at": datetime.now()
                 })
-                st.info(f"既存試薬を更新：{data.get('name','不明')}（数量: {new_qty}）")
+                
+                # ログ記録
                 db.collection("usage_logs").add({
                     "action": "入庫",
                     "name": data.get('name','不明'),
-                    "barcode": barcode_data,
+                    "barcode": current_barcode,
                     "timestamp": datetime.now()
                 })
+                
+                st.success(f"✅ 既存試薬 **{data.get('name','不明')}** を**自動入庫**しました。（数量: **{new_qty}**）")
+                # 処理後、バーコードをクリアして次のスキャンを待つ
+                st.session_state.barcode = "" 
+                st.session_state.refresh_toggle = not st.session_state.refresh_toggle # 在庫一覧の更新トリガー
+                
             else:
-                st.warning("新しいバーコードです。以下を入力してください。")
-                name = st.text_input("試薬名")
-                qty = st.number_input("数量", 1, 100, 1)
-                exp = st.date_input("有効期限")
+                # 4. 新規バーコードの登録フォーム表示
+                st.warning("🆕 **新しいバーコード**です。試薬情報を入力してください。")
+                
+                # フォームの初期値にバーコードをセット
+                with st.form("new_reagent_form"):
+                    name = st.text_input("試薬名", key="new_reagent_name")
+                    qty = st.number_input("初期数量", 1, 100, 1, key="new_reagent_qty")
+                    exp = st.date_input("有効期限", key="new_reagent_exp")
+                    
+                    submitted = st.form_submit_button("🧪 試薬を新規登録")
 
-                if st.button("登録"):
-                    data = {
-                        "barcode": barcode_data,
-                        "name": name,
-                        "qty": int(qty),
-                        "expiration": exp.strftime("%Y-%m-%d"),
-                        "created_at": datetime.now(),
-                        "updated_at": datetime.now()
-                    }
-                    db.collection("reagents").add(data)
-                    db.collection("usage_logs").add({
-                        "action": "登録",
-                        "name": name,
-                        "barcode": barcode_data,
-                        "timestamp": datetime.now()
-                    })
-                    st.success(f"✅ {name} を新規登録しました")
-                    st.session_state.refresh_toggle = not st.session_state.refresh_toggle
+                    if submitted:
+                        data = {
+                            "barcode": current_barcode,
+                            "name": name,
+                            "qty": int(qty),
+                            "expiration": exp.strftime("%Y-%m-%d"),
+                            "created_at": datetime.now(),
+                            "updated_at": datetime.now()
+                        }
+                        # DB登録
+                        db.collection("reagents").add(data)
+                        
+                        # ログ記録
+                        db.collection("usage_logs").add({
+                            "action": "登録",
+                            "name": name,
+                            "barcode": current_barcode,
+                            "timestamp": datetime.now()
+                        })
+                        
+                        st.success(f"✅ **{name}** を新規登録しました！")
+                        st.session_state.barcode = "" # 登録完了後クリア
+                        st.session_state.refresh_toggle = not st.session_state.refresh_toggle
+                        st.experimental_rerun() # 登録完了後、フォームを非表示にするために再実行
+
+# -------------------------------
+# ... 在庫一覧 / 出庫ページ（変更なし）
+# -------------------------------
 
 # -------------------------------
 # 在庫一覧 / 出庫ページ
@@ -197,3 +244,4 @@ if 'df' in locals():
     st.subheader("📄 試薬一覧")
     for index, data in df.iterrows():
         st.write(f"**{data.get('name','不明')}** - バーコード: {data.get('barcode','不明')}, 数量: {int(data.get('qty',0))}, 有効期限: {data.get('expiration','不明')}")
+
