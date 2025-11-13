@@ -10,7 +10,8 @@ import time
 # Firebase 初期化（Secrets対応）
 # -------------------------------
 if not firebase_admin._apps:
-    cred = credentials.Certificate(st.secrets["firebase"])
+    firebase_config = dict(st.secrets["firebase"])
+    cred = credentials.Certificate(firebase_config)
     firebase_admin.initialize_app(cred)
 db = firestore.client()
 
@@ -188,6 +189,7 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
 
 
 
