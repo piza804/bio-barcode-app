@@ -5,13 +5,12 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
 import time
-import json
 
 # -------------------------------
 # Firebase 初期化
 # -------------------------------
 if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase_key.json")
+    cred = credentials.Certificate("firebase_key.json")  # ここは秘密鍵 JSON のパス
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
@@ -37,69 +36,54 @@ if "refresh_toggle" not in st.session_state:
 COOLDOWN_SEC = 3
 
 # -------------------------------
-# QuaggaJS バーコードスキャナ HTML
-# -------------------------------
-quagga_html = """
-<div id="barcode-scanner" style="width:100%; max-width:480px; margin:auto;">
-  <video id="video" width="100%" autoplay muted playsinline></video>
-  <p id="barcode-result" style="font-weight:bold; text-align:center; margin-top:1rem;">バーコード未検出</p>
-</div>
-<script src="https://unpkg.com/@ericblade/quagga2@v0.0.9/dist/quagga.min.js"></script>
-<script>
-const resultElem = document.getElementById('barcode-result');
-Quagga.init({
-  inputStream: { type: "LiveStream", constraints: { facingMode: "environment" }, target: document.querySelector('#barcode-scanner') },
-  decoder: { readers: ["code_128_reader","ean_reader","upc_reader"] }
-}, function(err) {
-  if(err){ resultElem.textContent = "カメラ初期化エラー: " + err; return; }
-  Quagga.start();
-});
-
-Quagga.onDetected(function(data){
-  const code = data.codeResult.code;
-  resultElem.textContent = "検出: " + code;
-  // Streamlit に postMessage
-  window.parent.postMessage({ type:'barcode', code: code }, '*');
-});
-</script>
-"""
-
-# -------------------------------
 # バーコード登録ページ
 # -------------------------------
 if menu == "バーコード登録":
     st.header("📷 リアルタイムバーコードスキャン")
-    components.html(quagga_html, height=500, scrolling=False)
 
-    # JS から受け取ったバーコードを session_state に反映
-    st.markdown("""
+    # -------------------------------
+    # QuaggaJS HTML + Python に値を返す
+    # -------------------------------
+    quagga_component = """
+    <div id="barcode-scanner" style="width:100%; max-width:480px; margin:auto;">
+      <video id="video" width="100%" autoplay muted playsinline></video>
+      <p id="barcode-result" style="font-weight:bold; text-align:center; margin-top:1rem;">バーコード未検出</p>
+    </div>
+    <script src="https://unpkg.com/@ericblade/quagga2@v0.0.9/dist/quagga.min.js"></script>
     <script>
-    window.addEventListener('message', (event) => {
-        if (event.data.type === 'barcode') {
-            const code = event.data.code;
-            const streamlit_input = window.parent.document.querySelector('input[id*="barcode_input"]');
-            if(streamlit_input){
-                streamlit_input.value = code;
-                streamlit_input.dispatchEvent(new Event('input',{bubbles:true}));
-            }
-        }
+    const resultElem = document.getElementById('barcode-result');
+    let lastCode = "";
+    Quagga.init({
+      inputStream: { type: "LiveStream", constraints: { facingMode: "environment" }, target: document.querySelector('#barcode-scanner') },
+      decoder: { readers: ["code_128_reader","ean_reader","upc_reader"] }
+    }, function(err) {
+      if(err){ resultElem.textContent = "カメラ初期化エラー: " + err; return; }
+      Quagga.start();
+    });
+    Quagga.onDetected(function(data){
+      const code = data.codeResult.code;
+      if(code !== lastCode){
+        lastCode = code;
+        resultElem.textContent = "検出: " + code;
+        // Python 側に返す
+        const streamlitComponent = window.parent.document.querySelector('iframe');
+        streamlitComponent.contentWindow.postMessage(code, '*');
+      }
     });
     </script>
-    """, unsafe_allow_html=True)
+    """
 
-    # 隠しテキスト（自動入力用）
-    barcode_data = st.text_input("バーコード番号", value=st.session_state.barcode, key="barcode_input")
+    barcode_data = components.html(quagga_component, height=500, scrolling=False)
 
     # -------------------------------
-    # バーコードが変化したら自動で登録フォーム表示
+    # フォーム表示
     # -------------------------------
-    if barcode_data and barcode_data != st.session_state.get("barcode", ""):
-        st.session_state.barcode = barcode_data
-        st.experimental_rerun()  # 更新時にフォームを再描画
-
-    # 実際の登録処理
-    if st.session_state.barcode:
+    if st.session_state.barcode or barcode_data:
+        # barcode_data が返ったらセッションに反映
+        if barcode_data:
+            st.session_state.barcode = barcode_data
         barcode_data = st.session_state.barcode
+
         now = time.time()
         last_time = st.session_state.last_scan_time.get(barcode_data, 0)
         if now - last_time < COOLDOWN_SEC:
@@ -109,7 +93,7 @@ if menu == "バーコード登録":
             st.success(f"バーコード読み取り成功：{barcode_data}")
 
         docs = db.collection("reagents").where("barcode","==",barcode_data).get()
-        if docs:  # 既存試薬
+        if docs:
             data = docs[0].to_dict()
             st.info(f"既存試薬: {data.get('name','不明')}（数量: {data.get('qty',0)}）")
             if st.button("数量 +1"):
@@ -126,7 +110,7 @@ if menu == "バーコード登録":
                 })
                 st.success(f"数量を更新しました（残り {new_qty}）")
                 st.session_state.refresh_toggle = not st.session_state.refresh_toggle
-        else:  # 新規登録
+        else:
             st.warning("新規バーコードです。登録してください")
             name = st.text_input("試薬名")
             qty = st.number_input("数量",1,100,1)
@@ -151,7 +135,7 @@ if menu == "バーコード登録":
                 st.session_state.refresh_toggle = not st.session_state.refresh_toggle
 
 # -------------------------------
-# 在庫一覧 / 出庫ページ（既存コードと同じ）
+# 在庫一覧 / 出庫ページ
 # -------------------------------
 elif menu == "在庫一覧 / 出庫":
     st.header("📦 在庫一覧")
@@ -169,7 +153,7 @@ elif menu == "在庫一覧 / 出庫":
     if st.button("出庫（数量を減算）"):
         selected_doc = df[df["name"]==select_name].iloc[0]
         new_qty = max(int(selected_doc["qty"])-reduce_qty,0)
-        db.collection("reagents").document(selected_doc["id"]).update({
+        db.collection("reagents"].document(selected_doc["id"]).update({
             "qty": new_qty,
             "updated_at": datetime.now()
         })
