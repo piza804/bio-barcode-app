@@ -11,13 +11,13 @@ import time
 # Firebase 初期化
 # -------------------------------
 if not firebase_admin._apps:
-    # st.secrets["firebase"] → TOML構造体なので、一度JSON化→辞書に変換
-    firebase_config = json.loads(json.dumps(st.secrets["firebase"]))
+    # Streamlit Secrets を辞書に変換
+    firebase_config = dict(st.secrets["firebase"])  # ← これがポイント！
+
     cred = credentials.Certificate(firebase_config)
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
-
 
 # -------------------------------
 # Streamlit 設定
@@ -189,5 +189,6 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
 
 
