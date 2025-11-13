@@ -10,7 +10,7 @@ import time
 # Firebase 初期化
 # -------------------------------
 if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase_key.json")  # ここは秘密鍵 JSON のパス
+    cred = credentials.Certificate("firebase_key.json")
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
@@ -36,53 +36,67 @@ if "refresh_toggle" not in st.session_state:
 COOLDOWN_SEC = 3
 
 # -------------------------------
+# QuaggaJS バーコードスキャナ HTML
+# -------------------------------
+quagga_html = """
+<div id="barcode-scanner" style="width:100%; max-width:480px; margin:auto;">
+  <video id="video" width="100%" autoplay muted playsinline></video>
+  <p id="barcode-result" style="font-weight:bold; text-align:center; margin-top:1rem;">バーコード未検出</p>
+</div>
+<script src="https://unpkg.com/@ericblade/quagga2@v0.0.9/dist/quagga.min.js"></script>
+<script>
+const resultElem = document.getElementById('barcode-result');
+Quagga.init({
+  inputStream: { type: "LiveStream", constraints: { facingMode: "environment" }, target: document.querySelector('#barcode-scanner') },
+  decoder: { readers: ["code_128_reader","ean_reader","upc_reader"] }
+}, function(err) {
+  if(err){ resultElem.textContent = "カメラ初期化エラー: " + err; return; }
+  Quagga.start();
+});
+
+Quagga.onDetected(function(data){
+  const code = data.codeResult.code;
+  resultElem.textContent = "検出: " + code;
+  window.parent.postMessage({ type:'barcode', code: code }, '*');
+});
+</script>
+"""
+
+# -------------------------------
 # バーコード登録ページ
 # -------------------------------
 if menu == "バーコード登録":
     st.header("📷 リアルタイムバーコードスキャン")
+    components.html(quagga_html, height=500, scrolling=False)
 
-    # -------------------------------
-    # QuaggaJS HTML + Python に値を返す
-    # -------------------------------
-    quagga_component = """
-    <div id="barcode-scanner" style="width:100%; max-width:480px; margin:auto;">
-      <video id="video" width="100%" autoplay muted playsinline></video>
-      <p id="barcode-result" style="font-weight:bold; text-align:center; margin-top:1rem;">バーコード未検出</p>
-    </div>
-    <script src="https://unpkg.com/@ericblade/quagga2@v0.0.9/dist/quagga.min.js"></script>
+    # JSからPythonへバーコード値を送信
+    st.markdown("""
     <script>
-    const resultElem = document.getElementById('barcode-result');
-    let lastCode = "";
-    Quagga.init({
-      inputStream: { type: "LiveStream", constraints: { facingMode: "environment" }, target: document.querySelector('#barcode-scanner') },
-      decoder: { readers: ["code_128_reader","ean_reader","upc_reader"] }
-    }, function(err) {
-      if(err){ resultElem.textContent = "カメラ初期化エラー: " + err; return; }
-      Quagga.start();
-    });
-    Quagga.onDetected(function(data){
-      const code = data.codeResult.code;
-      if(code !== lastCode){
-        lastCode = code;
-        resultElem.textContent = "検出: " + code;
-        // Python 側に返す
-        const streamlitComponent = window.parent.document.querySelector('iframe');
-        streamlitComponent.contentWindow.postMessage(code, '*');
-      }
+    window.addEventListener('message', (event) => {
+        if(event.data.type === 'barcode'){
+            const input = window.parent.document.querySelector('input[id*="barcode_input"]');
+            if(input){
+                input.value = event.data.code;
+                input.dispatchEvent(new Event('input',{bubbles:true}));
+            }
+        }
     });
     </script>
-    """
+    """, unsafe_allow_html=True)
 
-    barcode_data = components.html(quagga_component, height=500, scrolling=False)
+    # 隠し入力欄（自動入力専用）
+    barcode_data = st.text_input(
+        "バーコード番号（自動入力）",
+        value=st.session_state.barcode,
+        key="barcode_input"
+    )
 
     # -------------------------------
-    # フォーム表示
+    # 登録処理（既存 or 新規）
     # -------------------------------
-    if st.session_state.barcode or barcode_data:
-        # barcode_data が返ったらセッションに反映
-        if barcode_data:
-            st.session_state.barcode = barcode_data
-        barcode_data = st.session_state.barcode
+    if barcode_data:
+        barcode_data = str(barcode_data)  # 🔹 型安全化
+        st.session_state.barcode = barcode_data
 
         now = time.time()
         last_time = st.session_state.last_scan_time.get(barcode_data, 0)
@@ -92,8 +106,9 @@ if menu == "バーコード登録":
             st.session_state.last_scan_time[barcode_data] = now
             st.success(f"バーコード読み取り成功：{barcode_data}")
 
+        # Firestore で既存か確認
         docs = db.collection("reagents").where("barcode","==",barcode_data).get()
-        if docs:
+        if docs:  # 既存試薬
             data = docs[0].to_dict()
             st.info(f"既存試薬: {data.get('name','不明')}（数量: {data.get('qty',0)}）")
             if st.button("数量 +1"):
@@ -110,7 +125,7 @@ if menu == "バーコード登録":
                 })
                 st.success(f"数量を更新しました（残り {new_qty}）")
                 st.session_state.refresh_toggle = not st.session_state.refresh_toggle
-        else:
+        else:  # 新規登録
             st.warning("新規バーコードです。登録してください")
             name = st.text_input("試薬名")
             qty = st.number_input("数量",1,100,1)
@@ -167,7 +182,7 @@ elif menu == "在庫一覧 / 出庫":
         st.session_state.refresh_toggle = not st.session_state.refresh_toggle
 
 # -------------------------------
-# 常に最新の在庫一覧を表示
+# 最新の在庫一覧
 # -------------------------------
 docs = db.collection("reagents").stream()
 items = [ {**doc.to_dict(), "id": doc.id} for doc in docs ]
@@ -176,8 +191,8 @@ if not df.empty:
     st.subheader("📄 試薬一覧（最新）")
     st.dataframe(df[["name","qty","expiration","barcode"]], use_container_width=True)
 
-# -------------------------------
 # 再描画トリガー
-# -------------------------------
 _ = st.session_state.refresh_toggle
+
+
 
