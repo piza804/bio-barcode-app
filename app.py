@@ -173,7 +173,7 @@ elif menu == "在庫一覧 / 出庫":
             "qty": new_qty,
             "updated_at": datetime.now()
         })
-        db.collection("usage_logs"].add({
+        db.collection("usage_logs").add({
             "action":"出庫",
             "name":selected_doc["name"],
             "barcode":selected_doc["barcode"],
@@ -186,3 +186,4 @@ elif menu == "在庫一覧 / 出庫":
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
