@@ -1,12 +1,14 @@
 import streamlit as st
 from datetime import datetime
+import json
 import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
 
 # Firebase 初期化
 if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase_key.json")
+    firebase_config = st.secrets["firebase"]
+    cred = credentials.Certificate(json.loads(json.dumps(firebase_config)))
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
@@ -125,3 +127,4 @@ elif menu == "在庫一覧 / 出庫":
 
     df = pd.DataFrame(items)
     st.dataframe(df[["name", "qty", "expiration", "barcode"]], use_container_width=True)
+
