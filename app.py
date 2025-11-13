@@ -2,30 +2,34 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import json
+import os
 
 # ------------------------------------------------
-# Firebase 初期化（Streamlit Cloud対応）
+# Firebase 初期化（Streamlit Cloud 対応）
 # ------------------------------------------------
 if not firebase_admin._apps:
     try:
-        # secrets.toml から読み込み
         firebase_secrets = dict(st.secrets["firebase"])
 
-        # 改行を元に戻す（これが最重要）
+        # ✅ 改行を正しく復元（これが重要）
         firebase_secrets["private_key"] = firebase_secrets["private_key"].replace("\\n", "\n")
 
-        # 一時JSONファイルを作ってそこから読み込む（PEM処理が安定）
-        with open("firebase_key_temp.json", "w") as f:
+        # ✅ JSONファイルに安全に保存
+        key_path = "firebase_key_temp.json"
+        with open(key_path, "w") as f:
             json.dump(firebase_secrets, f)
 
-        cred = credentials.Certificate("firebase_key_temp.json")
+        # ✅ Firebase初期化
+        cred = credentials.Certificate(key_path)
         firebase_admin.initialize_app(cred)
+        st.success("✅ Firebase initialized successfully")
 
     except Exception as e:
-        st.error(f"Firebase初期化エラー: {e}")
+        st.error(f"🔥 Firebase初期化エラー: {e}")
         st.stop()
 
 db = firestore.client()
+
 
 st.set_page_config(page_title="試薬バーコード管理", layout="wide")
 st.title("🧪 試薬バーコード管理（スマホ対応版）")
@@ -141,6 +145,7 @@ elif menu == "在庫一覧 / 出庫":
 
     df = pd.DataFrame(items)
     st.dataframe(df[["name", "qty", "expiration", "barcode"]], use_container_width=True)
+
 
 
 
