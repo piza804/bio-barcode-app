@@ -9,11 +9,14 @@ import time
 # -------------------------------
 # Firebase 初期化
 # -------------------------------
+
 if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase_key.json")
+    firebase_config = dict(st.secrets["firebase"])  # Secrets からdictとして読み込む
+    cred = credentials.Certificate(firebase_config)
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
+
 
 # -------------------------------
 # Streamlit 設定
@@ -185,3 +188,4 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
