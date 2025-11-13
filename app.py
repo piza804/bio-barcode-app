@@ -69,34 +69,21 @@ if menu == "バーコード登録":
     st.header("📷 バーコードスキャン（スマホ対応）")
     components.html(quagga_html, height=500, scrolling=True)
 
-    barcode_data = st.text_input("バーコード番号")  # JSから反映される想定
+    barcode_data = st.text_input("バーコード番号", key="barcode_input")  # JSからも書き込まれる
 
-    # JS側で postMessage 受信（Streamlit Componentsで反映させる簡易方法）
-    js = """
-    <script>
-    window.addEventListener('message', (event) => {
-        if(event.data.type === 'barcode'){
-            const input = window.parent.document.querySelector('input[type="text"]');
-            if(input){ input.value = event.data.code; input.dispatchEvent(new Event('input', {bubbles:true})); }
-        }
-    });
-    </script>
-    """
-    st.components.v1.html(js, height=0)
-
-    # バーコードが入力されたら処理
     if barcode_data:
         now = time.time()
         last_time = st.session_state.last_scan_time.get(barcode_data, 0)
+
         if now - last_time < COOLDOWN_SEC:
             st.info(f"{barcode_data} はクールダウン中 ({int(COOLDOWN_SEC-(now-last_time))}秒)")
         else:
             st.session_state.last_scan_time[barcode_data] = now
-            st.success(f"バーコード検出: {barcode_data}")
 
-            # Firestore に登録/更新
+            # Firestore に既存チェック
             docs = db.collection("reagents").where("barcode", "==", str(barcode_data)).get()
             if docs:
+                # 既存バーコード → 自動数量更新
                 doc_ref = docs[0].reference
                 data = docs[0].to_dict()
                 new_qty = int(data.get("qty", 0)) + 1
@@ -110,13 +97,16 @@ if menu == "バーコード登録":
                     "barcode": barcode_data,
                     "timestamp": datetime.now()
                 })
-                st.info(f"既存試薬を更新：{data.get('name','不明')}（数量: {new_qty}）")
+                st.success(f"✅ {data.get('name','不明')} を数量 +1 更新（残り: {new_qty}）")
             else:
-                st.warning("新規バーコードです。情報を入力してください")
-                name = st.text_input("試薬名")
-                qty = st.number_input("数量", 1, 100, 1)
-                exp = st.date_input("有効期限")
-                if st.button("登録"):
+                # 新規バーコード → 入力フォーム表示
+                st.warning("新しいバーコードです。情報を入力してください")
+                name = st.text_input("試薬名", key="new_name")
+                qty = st.number_input("数量", 1, 100, 1, key="new_qty")
+                exp = st.date_input("有効期限", key="new_exp")
+
+                # 新規登録ボタン
+                if st.button("登録", key="register_new"):
                     db.collection("reagents").add({
                         "barcode": str(barcode_data),
                         "name": name,
@@ -128,10 +118,12 @@ if menu == "バーコード登録":
                     db.collection("usage_logs").add({
                         "action": "登録",
                         "name": name,
-                        "barcode": str(barcode_data),
+                        "barcode": barcode_data,
                         "timestamp": datetime.now()
                     })
                     st.success(f"✅ {name} を新規登録しました")
+                    st.session_state.barcode_input = ""  # 入力クリア
+
 
 # -------------------------------
 # 在庫一覧 / 出庫ページ
@@ -172,3 +164,4 @@ elif menu == "在庫一覧 / 出庫":
     st.subheader("📄 試薬一覧")
     for idx, row in df.iterrows():
         st.write(f"**{row['name']}** - バーコード: {row['barcode']}, 数量: {row['qty']}, 有効期限: {row['expiration']}")
+
