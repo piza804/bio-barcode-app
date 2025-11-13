@@ -1,17 +1,31 @@
 import streamlit as st
-from datetime import datetime
-import json
 import firebase_admin
 from firebase_admin import credentials, firestore
-import pandas as pd
+import json
 
-# Firebase 初期化
+# ------------------------------------------------
+# Firebase 初期化（Streamlit Cloud対応）
+# ------------------------------------------------
 if not firebase_admin._apps:
-    firebase_config = st.secrets["firebase"]
-    cred = credentials.Certificate(json.loads(json.dumps(firebase_config)))
-    firebase_admin.initialize_app(cred)
+    try:
+        firebase_secrets = st.secrets["firebase"]
+
+        # TOML型を通常のdictに変換
+        firebase_secrets = dict(firebase_secrets)
+
+        # 改行コードを戻す（重要）
+        firebase_secrets["private_key"] = firebase_secrets["private_key"].replace("\\n", "\n")
+
+        # Firebase資格情報を初期化
+        cred = credentials.Certificate(firebase_secrets)
+        firebase_admin.initialize_app(cred)
+
+    except Exception as e:
+        st.error(f"Firebase初期化エラー: {e}")
+        st.stop()
 
 db = firestore.client()
+
 
 st.set_page_config(page_title="試薬バーコード管理", layout="wide")
 st.title("🧪 試薬バーコード管理（スマホ対応版）")
@@ -127,4 +141,5 @@ elif menu == "在庫一覧 / 出庫":
 
     df = pd.DataFrame(items)
     st.dataframe(df[["name", "qty", "expiration", "barcode"]], use_container_width=True)
+
 
