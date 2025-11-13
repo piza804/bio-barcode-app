@@ -11,9 +11,9 @@ import time
 # Firebase 初期化
 # -------------------------------
 if not firebase_admin._apps:
-    # Streamlit Secrets を辞書に変換
-    firebase_config = dict(st.secrets["firebase"])  # ← これがポイント！
-
+    firebase_config = dict(st.secrets["firebase"])
+    # 改行コードを正しい形式に戻す
+    firebase_config["private_key"] = firebase_config["private_key"].replace("\\n", "\n")
     cred = credentials.Certificate(firebase_config)
     firebase_admin.initialize_app(cred)
 
@@ -189,6 +189,7 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
 
 
 
