@@ -8,16 +8,17 @@ import json
 # ------------------------------------------------
 if not firebase_admin._apps:
     try:
-        firebase_secrets = st.secrets["firebase"]
+        # secrets.toml から読み込み
+        firebase_secrets = dict(st.secrets["firebase"])
 
-        # TOML型を通常のdictに変換
-        firebase_secrets = dict(firebase_secrets)
-
-        # 改行コードを戻す（重要）
+        # 改行を元に戻す（これが最重要）
         firebase_secrets["private_key"] = firebase_secrets["private_key"].replace("\\n", "\n")
 
-        # Firebase資格情報を初期化
-        cred = credentials.Certificate(firebase_secrets)
+        # 一時JSONファイルを作ってそこから読み込む（PEM処理が安定）
+        with open("firebase_key_temp.json", "w") as f:
+            json.dump(firebase_secrets, f)
+
+        cred = credentials.Certificate("firebase_key_temp.json")
         firebase_admin.initialize_app(cred)
 
     except Exception as e:
@@ -25,7 +26,6 @@ if not firebase_admin._apps:
         st.stop()
 
 db = firestore.client()
-
 
 st.set_page_config(page_title="試薬バーコード管理", layout="wide")
 st.title("🧪 試薬バーコード管理（スマホ対応版）")
@@ -141,5 +141,6 @@ elif menu == "在庫一覧 / 出庫":
 
     df = pd.DataFrame(items)
     st.dataframe(df[["name", "qty", "expiration", "barcode"]], use_container_width=True)
+
 
 
