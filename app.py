@@ -111,7 +111,7 @@ window.addEventListener('message', (event) => {
         now = time.time()
         last_time = st.session_state.last_scan_time.get(st.session_state.barcode, 0)
         if now - last_time < COOLDOWN_SEC:
-            st.info(f"f"{st.session_state.barcode} はクールダウン中 ({int(COOLDOWN_SEC - (now - last_time))}秒)")
+            st.info(f"{st.session_state.barcode} はクールダウン中 ({int(COOLDOWN_SEC - (now - last_time))}秒)")
         else:
             st.session_state.last_scan_time[st.session_state.barcode] = now
            
@@ -189,6 +189,7 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
 
 
 
