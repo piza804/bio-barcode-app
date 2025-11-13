@@ -85,15 +85,18 @@ if menu == "バーコード登録":
 
     # Streamlit へ検出バーコードを送信
     st.markdown("""
-    <script>
-    window.addEventListener('message', (event) => {
-        if(event.data.type === 'barcode'){
-            const input = window.parent.document.querySelector('input[id*="barcode_input"]');
-            if(input){ input.value = event.data.code; input.dispatchEvent(new Event('input',{bubbles:true})); }
+<script>
+window.addEventListener('message', (event) => {
+    if (event.data.type === 'barcode') {
+        const input = window.parent.document.querySelector('input[data-testid="stTextInput"]');
+        if (input) {
+            input.value = event.data.code;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
         }
-    });
-    </script>
-    """, unsafe_allow_html=True)
+    }
+});
+</script>
+""", unsafe_allow_html=True)
 
     # 表示用の隠しテキストで session_state 更新
     barcode_data = st.text_input("バーコード番号（自動入力）", key="barcode_input")
@@ -199,6 +202,7 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
 
 
 
