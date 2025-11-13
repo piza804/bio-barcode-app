@@ -1,3 +1,4 @@
+import json
 import streamlit as st
 import streamlit.components.v1 as components
 from datetime import datetime
@@ -10,7 +11,8 @@ import time
 # Firebase 初期化（Secrets対応）
 # -------------------------------
 if not firebase_admin._apps:
-    cred = credentials.Certificate(st.secrets["firebase"])
+    firebase_config = json.loads(st.secrets["firebase"])  # ← JSON文字列 → dictに変換
+    cred = credentials.Certificate(firebase_config)
     firebase_admin.initialize_app(cred)
 db = firestore.client()
 
@@ -188,4 +190,5 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
 
