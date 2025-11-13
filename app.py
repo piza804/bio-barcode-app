@@ -10,13 +10,8 @@ import time
 # Firebase 初期化（Secrets対応）
 # -------------------------------
 if not firebase_admin._apps:
-    if "FIREBASE" in st.secrets:
-        firebase_config = dict(st.secrets["FIREBASE"])  # ← Streamlit Cloud用
-        cred = credentials.Certificate(firebase_config)
-    else:
-        cred = credentials.Certificate("firebase_key.json")  # ← ローカル開発用
+    cred = credentials.Certificate(st.secrets["firebase"])
     firebase_admin.initialize_app(cred)
-
 db = firestore.client()
 
 # -------------------------------
@@ -193,3 +188,4 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
