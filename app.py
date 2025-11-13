@@ -10,16 +10,21 @@ import time
 # Firebase 初期化
 # -------------------------------
 if not firebase_admin._apps:
-    # Streamlit secrets から firebase セクションを dict 化
     firebase_config = {k: v for k, v in st.secrets["firebase"].items()}
-    
-    # 改行コードを復元（TOMLでは \n が失われるため）
-    if "private_key" in firebase_config:
-        firebase_config["private_key"] = firebase_config["private_key"].replace("\\n", "\n")
-    
+
+    # 改行コードの修正（2重エスケープ対応）
+    pk = firebase_config.get("private_key", "")
+    pk = pk.replace("\\n", "\n").replace("\\\\n", "\n")
+    firebase_config["private_key"] = pk
+
     # Firebase 認証
-    cred = credentials.Certificate(firebase_config)
-    firebase_admin.initialize_app(cred)
+    try:
+        cred = credentials.Certificate(firebase_config)
+        firebase_admin.initialize_app(cred)
+    except Exception as e:
+        st.error(f"Firebase 初期化エラー: {e}")
+        st.stop()
+
 
 # Firestore クライアント作成
 db = firestore.client()
@@ -194,6 +199,7 @@ if not df.empty:
 # 再描画トリガー
 # -------------------------------
 _ = st.session_state.refresh_toggle
+
 
 
 
