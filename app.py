@@ -78,12 +78,18 @@ Quagga.onDetected(function(data) {
 # -------------------------------
 # バーコード登録ページ
 # -------------------------------
+# -------------------------------
+# バーコード登録ページ
+# -------------------------------
 if menu == "バーコード登録":
     st.header("📷 バーコードスキャン")
-    components.html(quagga_html, height=600, scrolling=True)
-
-    # JavaScriptからメッセージを受信し、セッションステートを更新する
-    # このスクリプトは、QuaggaJSの検出結果を直接セッションステートに保持する
+    
+    # QuaggaJS スキャナーを最上部に配置
+    components.html(quagga_html, height=450, scrolling=False) # 高さを調整し、画面を固定
+    
+    # ----------------------------------------------------
+    # JavaScriptからメッセージを受信し、セッションステートを更新するスクリプト
+    # ----------------------------------------------------
     st.markdown("""
     <script>
     window.addEventListener('message', (event) => {
@@ -101,16 +107,18 @@ if menu == "バーコード登録":
     """, unsafe_allow_html=True)
     
     # バーコード値を受け取るための非表示のインプットフィールド (セッションステート更新用)
-    # ユーザーには見えないが、JSからの値を受け取ってStreamlitを再実行させる役割
     hidden_barcode_key = "hidden_barcode_input"
     barcode_data_from_scanner = st.text_input("バーコードスキャン値 (非表示)", key=hidden_barcode_key, label_visibility="hidden")
     
-    # スキャンによって値が変わった場合のみ処理を実行
+    # スキャンによって値が変わった場合のみ処理を実行し、再レンダリングをトリガー
     if barcode_data_from_scanner and barcode_data_from_scanner != st.session_state.barcode:
         st.session_state.barcode = barcode_data_from_scanner
         st.session_state.processing_barcode = barcode_data_from_scanner # 処理中のバーコードを保持
-        st.experimental_rerun() # 値が変わったら即座に再実行してクールダウンチェックに進む
+        # st.experimental_rerun() は不要。text_inputの変更で自動的に再実行される。
 
+    # ----------------------------------------------------
+    # スキャン後の処理エリア（スキャナー直下）
+    # ----------------------------------------------------
     if st.session_state.barcode:
         current_barcode = st.session_state.barcode
         
@@ -151,15 +159,14 @@ if menu == "バーコード登録":
                 })
                 
                 st.success(f"✅ 既存試薬 **{data.get('name','不明')}** を**自動入庫**しました。（数量: **{new_qty}**）")
-                # 処理後、バーコードをクリアして次のスキャンを待つ
                 st.session_state.barcode = "" 
-                st.session_state.refresh_toggle = not st.session_state.refresh_toggle # 在庫一覧の更新トリガー
+                st.session_state.refresh_toggle = not st.session_state.refresh_toggle
                 
             else:
                 # 4. 新規バーコードの登録フォーム表示
+                # これがスキャン画面の直下に表示される登録項目
                 st.warning("🆕 **新しいバーコード**です。試薬情報を入力してください。")
                 
-                # フォームの初期値にバーコードをセット
                 with st.form("new_reagent_form"):
                     name = st.text_input("試薬名", key="new_reagent_name")
                     qty = st.number_input("初期数量", 1, 100, 1, key="new_reagent_qty")
@@ -182,17 +189,6 @@ if menu == "バーコード登録":
                         # ログ記録
                         db.collection("usage_logs").add({
                             "action": "登録",
-                            "name": name,
-                            "barcode": current_barcode,
-                            "timestamp": datetime.now()
-                        })
-                        
-                        st.success(f"✅ **{name}** を新規登録しました！")
-                        st.session_state.barcode = "" # 登録完了後クリア
-                        st.session_state.refresh_toggle = not st.session_state.refresh_toggle
-                        st.experimental_rerun() # 登録完了後、フォームを非表示にするために再実行
-
-# -------------------------------
 # ... 在庫一覧 / 出庫ページ（変更なし）
 # -------------------------------
 
@@ -244,4 +240,5 @@ if 'df' in locals():
     st.subheader("📄 試薬一覧")
     for index, data in df.iterrows():
         st.write(f"**{data.get('name','不明')}** - バーコード: {data.get('barcode','不明')}, 数量: {int(data.get('qty',0))}, 有効期限: {data.get('expiration','不明')}")
+
 
