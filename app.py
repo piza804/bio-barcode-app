@@ -5,6 +5,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
 import time
+import json
 
 # -------------------------------
 # Firebase 初期化
@@ -57,6 +58,7 @@ Quagga.init({
 Quagga.onDetected(function(data){
   const code = data.codeResult.code;
   resultElem.textContent = "検出: " + code;
+  // Streamlit に postMessage
   window.parent.postMessage({ type:'barcode', code: code }, '*');
 });
 </script>
@@ -69,32 +71,33 @@ if menu == "バーコード登録":
     st.header("📷 リアルタイムバーコードスキャン")
     components.html(quagga_html, height=500, scrolling=False)
 
-    # JS → Python へ送信
+    # JS から受け取ったバーコードを session_state に反映
     st.markdown("""
     <script>
     window.addEventListener('message', (event) => {
-        if(event.data.type === 'barcode'){
-            const input = window.parent.document.querySelector('input[id*="barcode_input"]');
-            if(input){
-                input.value = event.data.code;
-                input.dispatchEvent(new Event('input',{bubbles:true}));
+        if (event.data.type === 'barcode') {
+            const code = event.data.code;
+            const streamlit_input = window.parent.document.querySelector('input[id*="barcode_input"]');
+            if(streamlit_input){
+                streamlit_input.value = code;
+                streamlit_input.dispatchEvent(new Event('input',{bubbles:true}));
             }
         }
     });
     </script>
     """, unsafe_allow_html=True)
 
-    # 隠しテキストで session_state 更新
-    barcode_data = st.text_input("バーコード番号（自動入力）", value=st.session_state.barcode, key="barcode_input")
+    # 隠しテキスト（自動入力用）
+    barcode_data = st.text_input("バーコード番号", value=st.session_state.barcode, key="barcode_input")
 
-    # スキャン直後に rerun
-    if barcode_data and barcode_data != st.session_state.barcode:
+    # -------------------------------
+    # バーコードが変化したら自動で登録フォーム表示
+    # -------------------------------
+    if barcode_data and barcode_data != st.session_state.get("barcode", ""):
         st.session_state.barcode = barcode_data
-        st.experimental_rerun()
+        st.experimental_rerun()  # 更新時にフォームを再描画
 
-    # -------------------------------
-    # 登録処理（既存 or 新規）
-    # -------------------------------
+    # 実際の登録処理
     if st.session_state.barcode:
         barcode_data = st.session_state.barcode
         now = time.time()
@@ -109,7 +112,7 @@ if menu == "バーコード登録":
         if docs:  # 既存試薬
             data = docs[0].to_dict()
             st.info(f"既存試薬: {data.get('name','不明')}（数量: {data.get('qty',0)}）")
-            if st.button("数量 +1", key=f"plus_{barcode_data}"):
+            if st.button("数量 +1"):
                 new_qty = data.get('qty',0)+1
                 db.collection("reagents").document(docs[0].id).update({
                     "qty": new_qty,
@@ -125,10 +128,10 @@ if menu == "バーコード登録":
                 st.session_state.refresh_toggle = not st.session_state.refresh_toggle
         else:  # 新規登録
             st.warning("新規バーコードです。登録してください")
-            name = st.text_input("試薬名", key=f"name_{barcode_data}")
-            qty = st.number_input("数量",1,100,1, key=f"qty_{barcode_data}")
-            exp = st.date_input("有効期限", key=f"exp_{barcode_data}")
-            if st.button("登録", key=f"register_{barcode_data}"):
+            name = st.text_input("試薬名")
+            qty = st.number_input("数量",1,100,1)
+            exp = st.date_input("有効期限")
+            if st.button("登録"):
                 db.collection("reagents").add({
                     "barcode":barcode_data,
                     "name":name,
@@ -147,13 +150,49 @@ if menu == "バーコード登録":
                 st.session_state.barcode = ""  # 登録後リセット
                 st.session_state.refresh_toggle = not st.session_state.refresh_toggle
 
+# -------------------------------
+# 在庫一覧 / 出庫ページ（既存コードと同じ）
+# -------------------------------
+elif menu == "在庫一覧 / 出庫":
+    st.header("📦 在庫一覧")
+    docs = db.collection("reagents").stream()
+    items = [ {**doc.to_dict(), "id": doc.id} for doc in docs ]
+    if not items:
+        st.info("在庫がありません")
+        st.stop()
+    df = pd.DataFrame(items)
+    st.dataframe(df[["name","qty","expiration","barcode"]], use_container_width=True)
 
+    st.subheader("📉 出庫操作")
+    select_name = st.selectbox("試薬を選択", df["name"].unique())
+    reduce_qty = st.number_input("出庫数量", 1, 10)
+    if st.button("出庫（数量を減算）"):
+        selected_doc = df[df["name"]==select_name].iloc[0]
+        new_qty = max(int(selected_doc["qty"])-reduce_qty,0)
+        db.collection("reagents").document(selected_doc["id"]).update({
+            "qty": new_qty,
+            "updated_at": datetime.now()
+        })
+        db.collection("usage_logs").add({
+            "action":"出庫",
+            "name":selected_doc["name"],
+            "barcode":selected_doc["barcode"],
+            "timestamp":datetime.now()
+        })
+        st.success(f"{selected_doc['name']} を出庫しました（残り: {new_qty}）")
+        st.session_state.refresh_toggle = not st.session_state.refresh_toggle
 
+# -------------------------------
+# 常に最新の在庫一覧を表示
+# -------------------------------
+docs = db.collection("reagents").stream()
+items = [ {**doc.to_dict(), "id": doc.id} for doc in docs ]
+df = pd.DataFrame(items)
+if not df.empty:
+    st.subheader("📄 試薬一覧（最新）")
+    st.dataframe(df[["name","qty","expiration","barcode"]], use_container_width=True)
 
-
-
-
-
-
-
-
+# -------------------------------
+# 再描画トリガー
+# -------------------------------
+_ = st.session_state.refresh_toggle
