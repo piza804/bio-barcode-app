@@ -162,7 +162,7 @@ elif menu == "在庫一覧 / 出庫":
     if st.button("出庫（数量を減算）"):
         selected_doc = df[df["name"]==select_name].iloc[0]
         new_qty = max(int(selected_doc["qty"])-reduce_qty,0)
-        db.collection("reagents"].document(selected_doc["id"]).update({
+        db.collection("reagents").document(selected_doc["id"]).update({
             "qty": new_qty,
             "updated_at": datetime.now()
         })
@@ -173,3 +173,4 @@ elif menu == "在庫一覧 / 出庫":
             "timestamp":datetime.now()
         })
         st.success(f"{selected_doc['name']} を出庫しました（残り: {new_qty}）")
+
